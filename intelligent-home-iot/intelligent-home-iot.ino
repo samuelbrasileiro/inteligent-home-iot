@@ -1,4 +1,15 @@
+#define BLYNK_TEMPLATE_ID "TMPLdroSeriT"
+#define BLYNK_DEVICE_NAME "fog"
+#define BLYNK_AUTH_TOKEN "R-SI-kqRSzWd13Rm8Eo82W77NXYKI0I6"
+#include <Blynk.h>
+#define BLYNK_PRINT Serial
+
+#include "BlynkSimpleEsp32.h"
+#include <Arduino_JSON.h>
+
 #include <WiFi.h>
+#include <HTTPClient.h>
+
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
@@ -10,6 +21,7 @@
 #define RED 23
 #define GREEN 18
 #define YELLOW 19
+#define RESISTOR 14
 
 #define BUTTON 17
 
@@ -46,7 +58,44 @@ int isYellowActive = 1;
 int isGreenActive = 1;
 int isResistorActive = 1;
 
-byte server[] = {192, 168, 15, 11};
+int redKW = 0;
+int yellowKW = 0;
+int greenKW = 0;
+int resistorKW = 0;
+
+char auth[] = BLYNK_AUTH_TOKEN;
+char ssid[] = "CINGUESTS";
+char pass[] = "acessocin";
+char serverName[] = "http://192.168.1.106:2442/configuration";
+
+BlynkTimer timer;
+
+BlynkTimer fogTimer;
+
+BLYNK_WRITE(V0){
+  isRedActive = param.asInt();
+}
+
+BLYNK_WRITE(V1){
+  isYellowActive = param.asInt();
+}
+
+BLYNK_WRITE(V2){
+  isGreenActive = param.asInt();
+}
+
+BLYNK_WRITE(V3){
+  isResistorActive = param.asInt();
+}
+
+BLYNK_WRITE(V4){
+  int isOn = param.asInt();
+  if (isOn) {
+    state = ACTIVE_STATE;
+  } else {
+    state = UNACTIVE_STATE;
+  }
+}
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
@@ -68,21 +117,41 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Começou");
 
-  WiFi.begin("CINGUESTS", "acessocin");
-  while (WiFi.status() != WL_CONNECTED) {
+  WiFi.begin(ssid, pass);
+  Serial.println("Connecting");
+  while(WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("Connected to the wifi");
-  Serial.println("Press the button if you want to initialize the security system");
+  Serial.println("");
+  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.println(WiFi.localIP());
+  
+  delay(100);
+  Blynk.begin(auth,ssid,pass);
+  Blynk.virtualWrite(V0, isRedActive);
+  Blynk.virtualWrite(V1, isYellowActive);
+  Blynk.virtualWrite(V2, isGreenActive);
+  Blynk.virtualWrite(V3, isResistorActive);
+  Blynk.virtualWrite(V4, !(state == UNACTIVE_STATE));
+  
+  timer.setInterval(10L, updateUI);
+  timer.setInterval(30000L, sendStatus);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  Blynk.run();
+  timer.run();
+}
+
+void sendStatus() {
+  httpPOSTRequest();
+}
+
+void updateUI() {
   readButton();
   writeDisplay(batteryPercentage/10);
   checkLDR();
-  //watchServer();
   
   switch(state) {
   case ACTIVE_STATE:
@@ -96,8 +165,7 @@ void loop() {
     lowActors();
     checkBattery();
   break;
-  }
-  delay(10);
+  }  
 }
 
 void readButton() {
@@ -105,8 +173,10 @@ void readButton() {
   if (b_press == HIGH) {
     if (state == UNACTIVE_STATE) {
       state = ACTIVE_STATE;
+      Blynk.virtualWrite(V4, 1);
     } else {
       state = UNACTIVE_STATE;
+      Blynk.virtualWrite(V4, 0);
     }
     delay(500);
   }
@@ -115,42 +185,51 @@ void readButton() {
 void checkBattery() {
   if (batteryPercentage > 3) {
     state = ACTIVE_STATE;
+    Blynk.virtualWrite(V4, 1);
   }
+}
+
+void printBattery() {
+  Serial.println("Bateria - " + String(batteryPercentage) + "%");
 }
 
 void displayActors() {
   digitalWrite(RED, isRedActive);
   digitalWrite(YELLOW, isYellowActive);
   digitalWrite(GREEN, isGreenActive);
-  //digitalWrite(RESISTOR, isResistorActive);
+  digitalWrite(RESISTOR, isResistorActive);
 }
 
 void lowActors() {
   digitalWrite(RED, LOW);
   digitalWrite(YELLOW, LOW);
   digitalWrite(GREEN, LOW);
-  //digitalWrite(RESISTOR, LOW);
+  digitalWrite(RESISTOR, LOW);
 }
 
 void useBattery() {
   if (isRedActive) {
-    batteryUsage += 1;
+    batteryUsage += 2;
+    redKW += 2;
   }
   if (isYellowActive) {
     batteryUsage += 1;
+    yellowKW += 2;
   }
   if (isGreenActive) {
     batteryUsage += 1;
+    greenKW += 1;
   }
   if (isResistorActive) {
     batteryUsage += 3;
+    resistorKW += 3;
   }
 
   if (batteryUsage >= 1000) {
-    Serial.println("Bateria decaiu 1%");
     batteryPercentage -= 1;
+    printBattery();
     batteryUsage = 0;
-    //writeBatteryValue()
+    writeBatteryValue();
   }
 
   if (batteryPercentage <= 0) {
@@ -160,47 +239,11 @@ void useBattery() {
 }
 
 void writeBatteryValue() {
-      WiFiClient cliente;
-      bool st = cliente.connect(server, 2045);
-      cliente.println("SETBATTERYVALUE "+ String(batteryPercentage));
-//      while (cliente.available() == 0) {
-//        continue;
-//      }
-//      String reply = "";
-//      while (cliente.available()) {
-//        reply += (char)  cliente.read();
-//      }  
-}
-
-void watchServer() {
-      WiFiClient cliente;
-      bool st = cliente.connect(server, 2045);
-      
-      if (cliente.available() == 0) {
-        return;
-      }
-      String reply = "";
-      while (cliente.available()) {
-        reply += (char)  cliente.read();
-      }
-
-      if (reply == "SET RED 0") {
-        isRedActive = 0;
-      } else if (reply == "SET RED 1") {
-        isRedActive = 1;
-      } else if (reply == "SET YELLOW 0") {
-        isYellowActive = 0;
-      } else if (reply == "SET YELLOW 1") {
-        isYellowActive = 1;
-      } else if (reply == "SET GREEN 0") {
-        isGreenActive = 0;
-      } else if (reply == "SET GREEN 1") {
-        isGreenActive = 1;
-      } else if (reply == "TURN OFF") {
-        state = UNACTIVE_STATE;
-      } else if (reply == "TURN ON") {
-        state = ACTIVE_STATE;
-      }
+  Blynk.virtualWrite(V5, batteryPercentage);
+  Blynk.virtualWrite(V6, redKW / 1000);
+  Blynk.virtualWrite(V7, yellowKW / 1000);
+  Blynk.virtualWrite(V8, greenKW / 1000);
+  Blynk.virtualWrite(V10, resistorKW / 1000);
 }
 
 void writeDisplay(int number) {
@@ -221,20 +264,46 @@ void checkLDR() {
     if (ldrCount >= 100) {
       if (batteryPercentage < 100) {
         batteryPercentage += 1;
+        printBattery();
+        writeBatteryValue();
       }
       ldrCount = 0;
-      Serial.println("Bateria carregou 1%");
     }
   }
   previous_ldr = ldr_read;
 }
 
-void reset() {
-  digitalWrite(A, 0);
-  digitalWrite(B, 0);
-  digitalWrite(C, 0);
-  digitalWrite(D, 0);
-  digitalWrite(E, 0);
-  digitalWrite(FLED, 0);
-  digitalWrite(G, 0);
+void httpPOSTRequest() {
+  //Check WiFi connection status
+  if(WiFi.status()== WL_CONNECTED){
+    WiFiClient client;
+    HTTPClient http;
+  
+    // Your Domain name with URL path or IP address with path
+    http.begin(client, serverName);
+
+    // Specify content-type header
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    // Data to send with HTTP POST
+    String httpRequestData = "{\"redKW\":" + String(redKW) + ",\"yellowKW\":" + String(yellowKW) + ",\"greenKW\":" + String(greenKW) + ",\"resistorKW\":" + String(resistorKW) + "}";
+    Serial.println("Enviando " + httpRequestData);
+
+    // If you need an HTTP request with a content type: application/json, use the following:
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(5);
+    int httpResponseCode = http.POST(httpRequestData);
+
+    // If you need an HTTP request with a content type: text/plain
+    //http.addHeader("Content-Type", "text/plain");
+    //int httpResponseCode = http.POST("Hello, World!");
+   
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+      
+    // Free resources
+    http.end();
+  }
+  else {
+    Serial.println("WiFi Disconnected");
+  }
 }
