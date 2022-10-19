@@ -37,7 +37,7 @@ bool sete_segmentos[10][7] = {
 int previous_ldr = 0;
 
 int state = LOW_STATE;
-int batteryPercentage = 0;
+int batteryPercentage = 57;
 int ldrCount = 0;
 int batteryUsage = 0; // quando chegar a mil, perde 1
 
@@ -68,7 +68,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Começou");
 
-  WiFi.begin("CINGUEST", "acessocin");
+  WiFi.begin("CINGUESTS", "acessocin");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -80,7 +80,7 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   readButton();
-  writeDisplay(batteryPercentage/100);
+  writeDisplay(batteryPercentage/10);
   checkLDR();
   //watchServer();
   
@@ -94,6 +94,7 @@ void loop() {
   break;
   case LOW_STATE:
     lowActors();
+    checkBattery();
   break;
   }
   delay(10);
@@ -102,8 +103,18 @@ void loop() {
 void readButton() {
   int b_press = digitalRead(BUTTON);
   if (b_press == HIGH) {
-    state = ACTIVE_STATE;
+    if (state == UNACTIVE_STATE) {
+      state = ACTIVE_STATE;
+    } else {
+      state = UNACTIVE_STATE;
+    }
     delay(500);
+  }
+}
+
+void checkBattery() {
+  if (batteryPercentage > 3) {
+    state = ACTIVE_STATE;
   }
 }
 
@@ -136,11 +147,14 @@ void useBattery() {
   }
 
   if (batteryUsage >= 1000) {
+    Serial.println("Bateria decaiu 1%");
     batteryPercentage -= 1;
     batteryUsage = 0;
+    //writeBatteryValue()
   }
 
   if (batteryPercentage <= 0) {
+    Serial.println("A bateria está muito fraca... Carregue mais!");
      state = LOW_STATE;
   }
 }
@@ -149,21 +163,21 @@ void writeBatteryValue() {
       WiFiClient cliente;
       bool st = cliente.connect(server, 2045);
       cliente.println("SETBATTERYVALUE "+ String(batteryPercentage));
-      while (cliente.available() == 0) {
-        continue;
-      }
-      String reply = "";
-      while (cliente.available()) {
-        reply += (char)  cliente.read();
-      }  
+//      while (cliente.available() == 0) {
+//        continue;
+//      }
+//      String reply = "";
+//      while (cliente.available()) {
+//        reply += (char)  cliente.read();
+//      }  
 }
 
 void watchServer() {
       WiFiClient cliente;
       bool st = cliente.connect(server, 2045);
       
-      while (cliente.available() == 0) {
-        continue;
+      if (cliente.available() == 0) {
+        return;
       }
       String reply = "";
       while (cliente.available()) {
@@ -178,6 +192,10 @@ void watchServer() {
         isYellowActive = 0;
       } else if (reply == "SET YELLOW 1") {
         isYellowActive = 1;
+      } else if (reply == "SET GREEN 0") {
+        isGreenActive = 0;
+      } else if (reply == "SET GREEN 1") {
+        isGreenActive = 1;
       } else if (reply == "TURN OFF") {
         state = UNACTIVE_STATE;
       } else if (reply == "TURN ON") {
@@ -198,12 +216,14 @@ void writeDisplay(int number) {
 
 void checkLDR() {
   int ldr_read = analogRead(LDR);
-  if(ldr_read - previous_ldr > 300) {
+  if(ldr_read > 300) {
     ldrCount += 1;
     if (ldrCount >= 100) {
-      batteryPercentage += 1;
+      if (batteryPercentage < 100) {
+        batteryPercentage += 1;
+      }
       ldrCount = 0;
-      writeBatteryValue();
+      Serial.println("Bateria carregou 1%");
     }
   }
   previous_ldr = ldr_read;
