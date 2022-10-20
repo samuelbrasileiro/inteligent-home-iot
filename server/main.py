@@ -33,7 +33,7 @@ async def root():
     greenKWs = ('greenKW', [log['greenKW'] for log in array])
     resistorKWs = ('resistorKW', [log['resistorKW'] for log in array])
     
-    keyed = [redKWs, yellowKWs, greenKWs, resistorKWs]
+    keyed = [resistorKWs, yellowKWs, greenKWs, redKWs]
 
     dates = matplotlib.dates.date2num([datetime.fromtimestamp(log['timestamp']) for log in array])
     
@@ -45,7 +45,7 @@ async def root():
     print("dd")
     plt.savefig('relatories/relatory'+ str(datetime.now()) +'.pdf')
     print("ee")
-    return {"logs": array}
+    return {}
 
 @app.post("/logs/")
 async def create_item(log: Log):
