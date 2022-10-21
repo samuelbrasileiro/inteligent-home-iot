@@ -66,7 +66,8 @@ int resistorKW = 0;
 char auth[] = BLYNK_AUTH_TOKEN;
 char ssid[] = "CINGUESTS";
 char pass[] = "acessocin";
-char serverName[] = "http://192.168.1.106:2442/configuration";
+char serverLogsName[] = "http://172.22.65.102:1200/logs/";
+char serverAnalyzeName[] = "http://172.22.65.102:1200/analyze";
 
 BlynkTimer timer;
 
@@ -95,6 +96,10 @@ BLYNK_WRITE(V4){
   } else {
     state = UNACTIVE_STATE;
   }
+}
+
+BLYNK_WRITE(V10){
+  analyze();
 }
 
 void setup() {
@@ -213,7 +218,7 @@ void useBattery() {
     redKW += 2;
   }
   if (isYellowActive) {
-    batteryUsage += 1;
+    batteryUsage += 2;
     yellowKW += 2;
   }
   if (isGreenActive) {
@@ -243,7 +248,7 @@ void writeBatteryValue() {
   Blynk.virtualWrite(V6, redKW / 1000);
   Blynk.virtualWrite(V7, yellowKW / 1000);
   Blynk.virtualWrite(V8, greenKW / 1000);
-  Blynk.virtualWrite(V10, resistorKW / 1000);
+  Blynk.virtualWrite(V9, resistorKW / 1000);
 }
 
 void writeDisplay(int number) {
@@ -280,7 +285,7 @@ void httpPOSTRequest() {
     HTTPClient http;
   
     // Your Domain name with URL path or IP address with path
-    http.begin(client, serverName);
+    http.begin(client, serverLogsName);
 
     // Specify content-type header
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -290,8 +295,36 @@ void httpPOSTRequest() {
 
     // If you need an HTTP request with a content type: application/json, use the following:
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(5);
     int httpResponseCode = http.POST(httpRequestData);
+
+    // If you need an HTTP request with a content type: text/plain
+    //http.addHeader("Content-Type", "text/plain");
+    //int httpResponseCode = http.POST("Hello, World!");
+   
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+      
+    // Free resources
+    http.end();
+  }
+  else {
+    Serial.println("WiFi Disconnected");
+  }
+}
+
+void analyze() {
+  //Check WiFi connection status
+  if(WiFi.status()== WL_CONNECTED){
+    WiFiClient client;
+    HTTPClient http;
+  
+    // Your Domain name with URL path or IP address with path
+    http.begin(client, serverAnalyzeName);
+
+
+    // If you need an HTTP request with a content type: application/json, use the following:
+    http.setTimeout(5);
+    int httpResponseCode = http.GET();
 
     // If you need an HTTP request with a content type: text/plain
     //http.addHeader("Content-Type", "text/plain");
